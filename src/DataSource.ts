@@ -112,11 +112,33 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     if (!resultsData) {
       throw 'resultsData was null or undefined';
     }
+
     let data = dataPath.split('.').reduce((d: any, p: any) => {
       if (!d) {
         return null;
       }
-      return d[p];
+      if (Array.isArray(d)) {
+        // Look up `p` in each item in the list. If we find an array, copy the fields of the
+        // item to each doc in the array, so we can group on them.
+        let docs = [];
+        for (const item of d) {
+          if (Array.isArray(item[p])) {
+            for (const doc of item[p]) {
+              for (const field in item) {
+                if (field !== p) {
+                  doc['..' + field] = item[field];
+                }
+              }
+              docs.push(doc);
+            }
+          } else {
+            docs.push(item[p]);
+          }
+        }
+        return docs;
+      } else {
+        return d[p];
+      }
     }, resultsData.data);
     if (!data) {
       const errors: any[] = resultsData.errors;
@@ -203,11 +225,13 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
               for (const fieldName in doc) {
                 generalReplaceObject['field_' + fieldName] = doc[fieldName];
               }
-              for (const fieldName in doc) {
+              for (let fieldName in doc) {
                 let t: FieldType = FieldType.string;
                 if (fieldName === timePath || isRFC3339_ISO6801(String(doc[fieldName]))) {
                   t = FieldType.time;
-                } else {
+                } else if (!fieldName.startsWith('..')) {
+                  // Don't bother looking up the schema for the type of parent fields, because
+                  // we're not going to plot them. Leave them as strings.
                   let fieldType = Schema.getTypeOfDescendant(dataType, fieldName);
                   if (Schema.isNumericType(fieldType)) {
                     t = FieldType.number;
