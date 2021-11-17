@@ -39,6 +39,10 @@ export class Schema {
       let type = getNamedType(descendantType.getFields()[pathComponents[i]].type);
       if (i === pathComponents.length - 1) {
         return type;
+      } else if (type.name === 'GenericScalar') {
+        // We've hit an untyped field. Any subfield of such a field must also be untyped, so we
+        // can just return now.
+        return type;
       } else {
         if (!isObjectType(type)) {
           throw `Found type ${type.name} for component ${pathComponents[i]} of ${path}, expected object type`;
