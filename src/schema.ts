@@ -36,6 +36,12 @@ export class Schema {
     let descendantType = nodeType;
     let pathComponents = path.split('.');
     for (let i = 0; i < pathComponents.length; i++) {
+      if (!isNaN(Number(pathComponents[i]))) {
+        // Skip over path components which are really list indices. The next path component is a
+        // field of the current node.
+        continue;
+      }
+
       let type = getNamedType(descendantType.getFields()[pathComponents[i]].type);
       if (i === pathComponents.length - 1) {
         return type;

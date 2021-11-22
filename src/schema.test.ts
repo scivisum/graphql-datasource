@@ -1,4 +1,4 @@
-import { GraphQLFloat, GraphQLInt, GraphQLObjectType, GraphQLScalarType, GraphQLString } from 'graphql';
+import { GraphQLFloat, GraphQLInt, GraphQLList, GraphQLObjectType, GraphQLScalarType, GraphQLString } from 'graphql';
 import { Schema } from './schema';
 
 test('getTypeOfDescendant', () => {
@@ -18,6 +18,7 @@ test('getTypeOfDescendant', () => {
         type: childType,
       },
       child3: { type: genericScalarType },
+      child4: { type: GraphQLList(childType) },
     },
   });
 
@@ -29,6 +30,8 @@ test('getTypeOfDescendant', () => {
 
   expect(Schema.getTypeOfDescendant(parentType, 'child3')).toBe(genericScalarType);
   expect(Schema.getTypeOfDescendant(parentType, 'child3.any.thing')).toBe(genericScalarType);
+
+  expect(Schema.getTypeOfDescendant(parentType, 'child4.3.grandchild1')).toBe(GraphQLInt);
 });
 
 describe('isNumericType', () => {
