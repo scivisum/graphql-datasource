@@ -3,30 +3,35 @@ import defaults from 'lodash/defaults';
 import {
   AnnotationEvent,
   AnnotationQueryRequest,
+  DataFrame,
   DataQueryRequest,
   DataQueryResponse,
   DataSourceApi,
-  MetricFindValue,
   DataSourceInstanceSettings,
+  dateTime,
+  FieldType,
+  MetricFindValue,
+  MutableDataFrame,
   ScopedVars,
   TimeRange,
 } from '@grafana/data';
 
 import {
-  MyQuery,
-  MyDataSourceOptions,
   defaultQuery,
-  MyVariableQuery,
   MultiValueVariable,
-  TextValuePair,
+  MyDataSourceOptions,
+  MyQuery,
+  MyVariableQuery,
   RequestFactory,
+  TextValuePair,
 } from './types';
-import { dateTime, MutableDataFrame, FieldType, DataFrame } from '@grafana/data';
 import { getTemplateSrv } from '@grafana/runtime';
 import { isEqual } from 'lodash';
 import { flatten, isRFC3339_ISO6801 } from './util';
-import { GraphQLObjectType, isObjectType } from 'graphql';
+import { getOperationAST, GraphQLObjectType, isObjectType, parse } from 'graphql';
 import { Schema } from './schema';
+import assert from 'assert';
+import { getAliasIfExists, getDescendantNode, hasSelectionSet } from './query';
 
 const supportedVariableTypes = ['constant', 'custom', 'query', 'textbox'];
 
@@ -185,9 +190,17 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
     });
     promises.push(this.schema.getQuery());
 
-    return Promise.all(promises).then((results: any[]) => {
+    return Promise.all(promises).then((results) => {
       const dataFrameArray: DataFrame[] = [];
       let queryType: GraphQLObjectType = results.pop();
+
+      // Parse the query so we can find aliases. We can assert various things about the query
+      // structure because it was used to generate the results we're processing.
+      // We must remove variables like `${pmeOn}` because the syntax clashes with GraphQL.
+      // @ts-ignore (it thinks `replaceAll` doesn't exist)
+      const mungedQuery = options.targets[0].queryText.replaceAll(/\${[^}]+}/g, 'PLUGIN_VARIABLE');
+      const queryDocument = getOperationAST(parse(mungedQuery));
+      assert(queryDocument);
 
       for (let res of results) {
         const dataPathArray: string[] = DataSource.getDataPathArray(res.query.dataPath);
@@ -205,6 +218,10 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
           let dataType = Schema.getTypeOfDescendant(queryType, dataPath);
           if (!isObjectType(dataType)) {
             throw `Data path ${dataPath} has type ${dataType.name}, expected object type`;
+          }
+          const dataPathQueryNode = getDescendantNode(queryDocument, dataPath);
+          if (!hasSelectionSet(dataPathQueryNode)) {
+            throw `Query selects no fields from data path`;
           }
 
           const dataFrameMap = new Map<string, MutableDataFrame>();
@@ -232,7 +249,13 @@ export class DataSource extends DataSourceApi<MyQuery, MyDataSourceOptions> {
                 } else if (!fieldName.startsWith('..')) {
                   // Don't bother looking up the schema for the type of parent fields, because
                   // we're not going to plot them. Leave them as strings.
-                  let fieldType = Schema.getTypeOfDescendant(dataType, fieldName);
+
+                  // If the field was aliased, find the underlying field, because that defines the
+                  // type.
+                  const aliasNode = getAliasIfExists(dataPathQueryNode, fieldName);
+                  const unaliasedFieldName = aliasNode ? aliasNode.name.value : fieldName;
+
+                  let fieldType = Schema.getTypeOfDescendant(dataType, unaliasedFieldName);
                   if (Schema.isNumericType(fieldType)) {
                     t = FieldType.number;
                   }
