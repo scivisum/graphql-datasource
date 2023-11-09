@@ -24532,6 +24532,11 @@ var Schema = /** @class */function () {
     var descendantType = nodeType;
     var pathComponents = path.split('.');
     for (var i = 0; i < pathComponents.length; i++) {
+      if (!isNaN(Number(pathComponents[i]))) {
+        // Skip over path components which are really list indices. The next path component is a
+        // field of the current node.
+        continue;
+      }
       var type = Object(graphql__WEBPACK_IMPORTED_MODULE_0__["getNamedType"])(descendantType.getFields()[pathComponents[i]].type);
       if (i === pathComponents.length - 1) {
         return type;
